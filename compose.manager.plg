@@ -5,7 +5,6 @@
 <!ENTITY version     "2026.02.26">
 <!ENTITY launch      "Settings/&name;">
 <!ENTITY packageVER  "&version;">
-<!ENTITY packageMD5  "TBD_MD5_AFTER_BUILD">
 <!ENTITY packageName "&name;-package-&packageVER;">
 <!ENTITY packagefile "&packageName;.txz">
 <!ENTITY github      "bstone108/compose_plugin">
@@ -159,7 +158,6 @@ grep -q "SHOW_COMPOSE_IN_HEADER_MENU=" &pluginLOC;/&name;.cfg || echo "SHOW_COMP
 
 <FILE Name="&pluginLOC;/&packagefile;" Run="upgradepkg --install-new">
 <URL>&packageURL;</URL>
-<MD5>&packageMD5;</MD5>
 </FILE> 
 
 <FILE Run="/bin/bash">
