@@ -664,24 +664,65 @@ function saveEdit() {
 function editStackSettings(myID) {
   var project = $("#"+myID).attr("data-scriptname");
 
-  $.post(caURL,{action:'getEnvPath',script:project},function(rawEnvPath) {
-    if (rawEnvPath) {
-      var rawEnvPath = jQuery.parseJSON(rawEnvPath);
-      if(rawEnvPath.result == 'success') {
+  $.post(caURL,{action:'getStackSettings',script:project},function(rawStackSettings) {
+    if (rawStackSettings) {
+      var stackSettings = jQuery.parseJSON(rawStackSettings);
+      if(stackSettings.result == 'success') {
+        var envPathValue = (stackSettings.envPath || "");
+        envPathValue = envPathValue.replace(/&/g, "&amp;")
+                                   .replace(/</g, "&lt;")
+                                   .replace(/>/g, "&gt;")
+                                   .replace(/"/g, "&quot;")
+                                   .replace(/'/g, "&#39;");
+        var retryCount = parseInt(stackSettings.retryCount, 10);
+        if (isNaN(retryCount) || retryCount < 0) {
+          retryCount = 0;
+        }
+        var retryWait = parseInt(stackSettings.retryWait, 10);
+        if (isNaN(retryWait) || retryWait < 0) {
+          retryWait = 10;
+        }
+        var retryRebuildChecked = stackSettings.retryRebuild == "true" ? "checked" : "";
         var form = document.createElement("div");
-        // form.classList.add("swal-content");
+        form.style["text-align"] = "left";
         form.innerHTML =  `<div class="swal-text" style="font-weight: bold; padding-left: 0px; margin-top: 0px;">ENV File Path</div>`;
         form.innerHTML += `<br>`;
-        form.innerHTML += `<input type='text' id='env_path' class='swal-content__input' pattern="(\/mnt\/.*\/.+)" oninput="this.reportValidity()" title="A path under /mnt/user/ or /mnt/cache/ or /mnt/pool/" placeholder=Default value='${rawEnvPath.content}'>`;
+        form.innerHTML += `<input type='text' id='env_path' class='swal-content__input' pattern="(\/mnt\/.*\/.+)" oninput="this.reportValidity()" title="A path under /mnt/user/ or /mnt/cache/ or /mnt/pool/" placeholder=Default value='${envPathValue}'>`;
+        form.innerHTML += `<div class="swal-text" style="font-weight: bold; padding-left: 0px; margin-top: 16px;">Retry Count</div>`;
+        form.innerHTML += `<input type='number' id='retry_count' class='swal-content__input' min='0' step='1' value='${retryCount}'>`;
+        form.innerHTML += `<div class="swal-text" style="font-weight: bold; padding-left: 0px; margin-top: 16px;">Retry Wait Duration (seconds)</div>`;
+        form.innerHTML += `<input type='number' id='retry_wait' class='swal-content__input' min='0' step='1' value='${retryWait}'>`;
+        form.innerHTML += `<div style='margin-top: 16px;'>`;
+        form.innerHTML += `<label style='display:flex;align-items:center;gap:8px;'>`;
+        form.innerHTML += `<input type='checkbox' id='retry_rebuild' ${retryRebuildChecked}>`;
+        form.innerHTML += `<span>Attempt rebuild on last retry</span>`;
+        form.innerHTML += `</label>`;
+        form.innerHTML += `</div>`;
         swal2({
           title: "Stack Settings",
-          // text: "Enter in the name for the stack",
           content: form,
           buttons: true,
         }).then((inputValue) => {
           if (inputValue) {
             var new_env_path = document.getElementById("env_path").value;
-            $.post(caURL,{action:'setEnvPath',envPath:new_env_path,script:project},function(data) {
+            var retry_count = parseInt(document.getElementById("retry_count").value, 10);
+            if (isNaN(retry_count) || retry_count < 0) {
+              retry_count = 0;
+            }
+            var retry_wait = parseInt(document.getElementById("retry_wait").value, 10);
+            if (isNaN(retry_wait) || retry_wait < 0) {
+              retry_wait = 10;
+            }
+            var retry_rebuild = document.getElementById("retry_rebuild").checked;
+
+            $.post(caURL,{
+              action:'setStackSettings',
+              envPath:new_env_path,
+              retryCount:retry_count,
+              retryWait:retry_wait,
+              retryRebuild:retry_rebuild,
+              script:project
+            },function(data) {
                 var title = "Failed to set stack settings.";
                 var message = "";
                 var icon = "error";

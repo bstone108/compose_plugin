@@ -44,14 +44,36 @@ for dir in $COMPOSE_ROOT/*; do
                         envpath="$(< "${envpath}" )"
                         envpath="-e ${envpath@Q}"
                     fi
+
+                    retry_args=""
+                    if [ -f "$dir/retry_count" ]; then
+                        retry_count="$(< "$dir/retry_count")"
+                        [[ "$retry_count" =~ ^[0-9]+$ ]] || retry_count="0"
+                        if [ "$retry_count" -gt 0 ]; then
+                            retry_wait="10"
+                            if [ -f "$dir/retry_wait" ]; then
+                                retry_wait="$(< "$dir/retry_wait")"
+                            fi
+                            [[ "$retry_wait" =~ ^[0-9]+$ ]] || retry_wait="10"
+                            retry_args="-r ${retry_count@Q} -w ${retry_wait@Q}"
+
+                            if [ -f "$dir/retry_rebuild" ]; then
+                                retry_rebuild_state="$(< "$dir/retry_rebuild")"
+                                if [ "$retry_rebuild_state" = "true" ]; then
+                                    retry_args="$retry_args --retry-rebuild"
+                                fi
+                            fi
+                        fi
+                    fi
+
                     logger "Starting compose stack: ${name}"
                     if [ -f "$dir/indirect" ]; then
                         indirect=${dir}/indirect
                         indirect=$(< "${indirect}")
-                        eval $COMPOSE_WRAPPER -c up -d ${indirect@Q} -p ${name} $recreate $debug $override $envpath > /dev/null &
+                        eval $COMPOSE_WRAPPER -c up -d ${indirect@Q} -p ${name} $recreate $debug $override $envpath $retry_args > /dev/null &
                     else
                         dir="$dir/docker-compose.yml"
-                        eval $COMPOSE_WRAPPER -c up -f ${dir@Q} -p ${name} $recreate $debug $override $envpath > /dev/null &
+                        eval $COMPOSE_WRAPPER -c up -f ${dir@Q} -p ${name} $recreate $debug $override $envpath $retry_args > /dev/null &
                     fi
                 fi
             fi

@@ -1,8 +1,8 @@
 #!/bin/bash
 export HOME=/root
 
-SHORT=e:,c:,f:,p:,d:,o:,g:
-LONG=env,command:,file:,project_name:,project_dir:,override:,profile:,debug,recreate
+SHORT=e:,c:,f:,p:,d:,o:,g:,r:,w:
+LONG=env,command:,file:,project_name:,project_dir:,override:,profile:,retry-count:,retry-wait:,retry-rebuild,debug,recreate
 OPTS=$(getopt -a -n compose --options $SHORT --longoptions $LONG -- "$@")
 
 eval set -- "$OPTS"
@@ -13,6 +13,9 @@ project_dir=""
 options=""
 command_options=""
 debug=false
+retry_count=0
+retry_wait=10
+retry_rebuild=false
 
 while :
 do
@@ -54,6 +57,18 @@ do
       options="${options} --profile $2"
       shift 2
       ;;
+    -r | --retry-count )
+      retry_count="$2"
+      shift 2
+      ;;
+    -w | --retry-wait )
+      retry_wait="$2"
+      shift 2
+      ;;
+    --retry-rebuild )
+      retry_rebuild=true
+      shift;
+      ;;
     --recreate )
       command_options="${command_options} --force-recreate"
       shift;
@@ -72,13 +87,170 @@ do
   esac
 done
 
+normalize_non_negative_int() {
+  local value="$1"
+  local default="$2"
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$value"
+  else
+    echo "$default"
+  fi
+}
+
+run_compose_up() {
+  local with_build="$1"
+  local up_options="$command_options"
+  if [ "$with_build" = true ]; then
+    up_options="${up_options} --build"
+  fi
+
+  if [ "$debug" = true ]; then
+    logger "docker compose $envFile $files $options -p "$name" up $up_options -d"
+  fi
+
+  eval docker compose $envFile $files $options -p "$name" up $up_options -d 2>&1
+}
+
+get_stack_container_ids() {
+  eval docker compose $envFile $files $options -p "$name" ps -q 2>/dev/null
+}
+
+stack_all_containers_running() {
+  local container_ids
+  local container_id
+  local status
+  local health
+  container_ids=$(get_stack_container_ids)
+
+  if [ -z "$container_ids" ]; then
+    return 1
+  fi
+
+  while IFS= read -r container_id; do
+    if [ -z "$container_id" ]; then
+      continue
+    fi
+
+    status=$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null)
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null)
+    if [ "$status" != "running" ] || [ "$health" = "unhealthy" ]; then
+      return 1
+    fi
+  done <<< "$container_ids"
+
+  return 0
+}
+
+stack_start_in_progress() {
+  local container_ids
+  local container_id
+  local status
+  local health
+  container_ids=$(get_stack_container_ids)
+
+  if [ -z "$container_ids" ]; then
+    return 1
+  fi
+
+  while IFS= read -r container_id; do
+    if [ -z "$container_id" ]; then
+      continue
+    fi
+
+    status=$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null)
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null)
+    if [ "$status" = "created" ] || [ "$status" = "restarting" ] || [ "$health" = "starting" ]; then
+      return 0
+    fi
+  done <<< "$container_ids"
+
+  return 1
+}
+
+wait_for_stack_start_completion() {
+  local poll_seconds=2
+  local waited=0
+
+  while stack_start_in_progress; do
+    if [ "$waited" -eq 0 ]; then
+      echo "Compose services are still starting from the previous attempt. Waiting for that attempt to finish..."
+    fi
+    sleep "$poll_seconds"
+    waited=$((waited + poll_seconds))
+    if [ $((waited % 30)) -eq 0 ]; then
+      echo "Still waiting on previous compose attempt (${waited}s elapsed)..."
+    fi
+  done
+}
+
+retry_count=$(normalize_non_negative_int "$retry_count" "0")
+retry_wait=$(normalize_non_negative_int "$retry_wait" "10")
+
 case $command in
 
   up)
-    if [ "$debug" = true ]; then
-      logger "docker compose $envFile $files $options -p "$name" up $command_options -d"
+    run_compose_up false
+    exit_code=$?
+    if [ "$exit_code" -eq 0 ]; then
+      exit 0
     fi
-    eval docker compose $envFile $files $options -p "$name" up $command_options -d 2>&1
+
+    if [ "$retry_count" -eq 0 ]; then
+      exit "$exit_code"
+    fi
+
+    if stack_all_containers_running; then
+      echo "Compose services are already running. Skipping retries."
+      exit 0
+    fi
+
+    wait_for_stack_start_completion
+    if stack_all_containers_running; then
+      echo "Compose services are already running. Skipping retries."
+      exit 0
+    fi
+
+    for (( attempt=1; attempt<=retry_count; attempt++ )); do
+      wait_for_stack_start_completion
+      if stack_all_containers_running; then
+        echo "Compose services are already running. Skipping remaining retries."
+        exit 0
+      fi
+
+      if [ "$retry_wait" -gt 0 ]; then
+        echo "Compose up failed. Retrying (${attempt}/${retry_count}) in ${retry_wait} seconds..."
+        sleep "$retry_wait"
+      else
+        echo "Compose up failed. Retrying (${attempt}/${retry_count})..."
+      fi
+
+      wait_for_stack_start_completion
+      if stack_all_containers_running; then
+        echo "Compose services are already running. Skipping remaining retries."
+        exit 0
+      fi
+
+      retry_with_build=false
+      if [ "$retry_rebuild" = true ] && [ "$attempt" -eq "$retry_count" ]; then
+        retry_with_build=true
+        echo "Last retry is using --build."
+      fi
+
+      run_compose_up "$retry_with_build"
+      exit_code=$?
+      if [ "$exit_code" -eq 0 ]; then
+        exit 0
+      fi
+
+      if stack_all_containers_running; then
+        echo "Compose services are already running. Skipping remaining retries."
+        exit 0
+      fi
+
+      wait_for_stack_start_completion
+    done
+
+    exit "$exit_code"
     ;;
 
   down)

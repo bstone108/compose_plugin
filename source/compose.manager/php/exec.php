@@ -9,6 +9,33 @@ function getElement($element) {
     return $return;
 }
 
+function normalizeNonNegativeInt($value, $default = 0) {
+    $value = trim((string)$value);
+    if ( !preg_match('/^\d+$/', $value) ) {
+        return (string)$default;
+    }
+
+    return (string)intval($value);
+}
+
+function normalizeBoolean($value) {
+    $value = trim(strtolower((string)$value));
+    return ($value === "true" || $value === "1" || $value === "yes" || $value === "on") ? "true" : "false";
+}
+
+function readFileTrimmed($fileName, $default = "") {
+    if ( !is_file($fileName) ) {
+        return $default;
+    }
+
+    $content = file_get_contents($fileName);
+    if ( $content === false ) {
+        return $default;
+    }
+
+    return trim(str_replace("\r","",$content));
+}
+
 switch ($_POST['action']) {
     case 'addStack':
         #Create indirect
@@ -179,6 +206,54 @@ switch ($_POST['action']) {
         break;
     case 'unPatchUI':
         exec("$plugin_root/scripts/patch_ui.sh -r");
+        break;
+    case 'setStackSettings':
+        $script = isset($_POST['script']) ? urldecode(($_POST['script'])) : "";
+        if ( ! $script ) {
+            echo json_encode( [ 'result' => 'error', 'message' => 'Stack not specified.' ] );
+            break;
+        }
+
+        $basePath = "$compose_root/$script";
+        $envPath = isset($_POST['envPath']) ? urldecode(($_POST['envPath'])) : "";
+        $retryCount = normalizeNonNegativeInt(isset($_POST['retryCount']) ? urldecode(($_POST['retryCount'])) : "0", 0);
+        $retryWait = normalizeNonNegativeInt(isset($_POST['retryWait']) ? urldecode(($_POST['retryWait'])) : "10", 10);
+        $retryRebuild = normalizeBoolean(isset($_POST['retryRebuild']) ? urldecode(($_POST['retryRebuild'])) : "false");
+
+        $envPathFile = "$basePath/envpath";
+        if ( is_file($envPathFile) ) {
+            exec("rm ".escapeshellarg($envPathFile));
+        }
+        if ( !empty($envPath) ) {
+            file_put_contents($envPathFile, $envPath);
+        }
+
+        file_put_contents("$basePath/retry_count", $retryCount);
+        file_put_contents("$basePath/retry_wait", $retryWait);
+        file_put_contents("$basePath/retry_rebuild", $retryRebuild);
+
+        echo json_encode( [ 'result' => 'success', 'message' => '' ] );
+        break;
+    case 'getStackSettings':
+        $script = isset($_POST['script']) ? urldecode(($_POST['script'])) : "";
+        if ( ! $script ) {
+            echo json_encode( [ 'result' => 'error', 'message' => 'Stack not specified.' ] );
+            break;
+        }
+
+        $basePath = "$compose_root/$script";
+        $envPath = readFileTrimmed("$basePath/envpath", "");
+        $retryCount = normalizeNonNegativeInt(readFileTrimmed("$basePath/retry_count", "0"), 0);
+        $retryWait = normalizeNonNegativeInt(readFileTrimmed("$basePath/retry_wait", "10"), 10);
+        $retryRebuild = normalizeBoolean(readFileTrimmed("$basePath/retry_rebuild", "false"));
+
+        echo json_encode([
+            'result' => 'success',
+            'envPath' => $envPath,
+            'retryCount' => $retryCount,
+            'retryWait' => $retryWait,
+            'retryRebuild' => $retryRebuild,
+        ]);
         break;
     case 'setEnvPath':
         $script = isset($_POST['script']) ? urldecode(($_POST['script'])) : "";

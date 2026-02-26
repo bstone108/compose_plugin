@@ -2,13 +2,13 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name        "compose.manager">
 <!ENTITY author      "dcflachs">
-<!ENTITY version     "2025.11.01">
+<!ENTITY version     "2026.02.26">
 <!ENTITY launch      "Settings/&name;">
 <!ENTITY packageVER  "&version;">
-<!ENTITY packageMD5  "f69698567a8060a2261aa2a5b0db4878">
+<!ENTITY packageMD5  "TBD_MD5_AFTER_BUILD">
 <!ENTITY packageName "&name;-package-&packageVER;">
 <!ENTITY packagefile "&packageName;.txz">
-<!ENTITY github      "dcflachs/compose_plugin">
+<!ENTITY github      "bstone108/compose_plugin">
 <!ENTITY pluginURL   "https://raw.githubusercontent.com/&github;/main/&name;.plg">
 <!ENTITY packageURL  "https://github.com/&github;/releases/download/&version;/&packagefile;">
 <!ENTITY pluginLOC   "/boot/config/plugins/&name;">
@@ -25,6 +25,10 @@
 >
 
 <CHANGES>
+###2026.02.26
+- Add per-stack startup retry controls (retry count, wait duration, optional last-attempt rebuild).
+- Retry startup only when explicitly enabled on a stack (disabled by default).
+- Avoid overlapping retries by waiting for an in-progress startup attempt to finish.
 ###2025.11.01 
 - Docker Compose v2.40.3
 ###2025.05.01

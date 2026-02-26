@@ -2,7 +2,7 @@ name: Compose Plugin CI
 
 on:
   push:
-    tags: [ '20[0-9]+.[0-9]+.[0-9]' ]
+    tags: [ '20*.*.*' ]
   workflow_dispatch:
     inputs:
       create_release:
@@ -55,7 +55,7 @@ jobs:
       if: github.event_name != 'workflow_dispatch'
       run: |
           echo "DO_RELEASE=T" >> $GITHUB_ENV
-          echo "RELEASE_TAG_NAME=${{github.GITHUB_REF}}" >> $GITHUB_ENV
+          echo "RELEASE_TAG_NAME=${{steps.version.outputs.version}}" >> $GITHUB_ENV
           
     - name: Create Manual Release
       id: create_release
@@ -67,7 +67,7 @@ jobs:
         tag_name:  ${{env.RELEASE_TAG_NAME}}
         release_name: Compose Manager Package ${{env.RELEASE_TAG_NAME}}
         body_path: ./archive/release_info
-        draft: true
+        draft: false
         prerelease: false
     
     - name: Upload Release Asset

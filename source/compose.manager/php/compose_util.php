@@ -9,6 +9,33 @@ function logger($string) {
 	exec("logger ".$string);
 }
 
+function normalizeNonNegativeInt($value, $default = 0) {
+	$value = trim((string)$value);
+	if ( !preg_match('/^\d+$/', $value) ) {
+		return (string)$default;
+	}
+
+	return (string)intval($value);
+}
+
+function normalizeBoolean($value) {
+	$value = trim(strtolower((string)$value));
+	return ($value === "true" || $value === "1" || $value === "yes" || $value === "on") ? "true" : "false";
+}
+
+function readFileTrimmed($fileName, $default = "") {
+	if ( !is_file($fileName) ) {
+		return $default;
+	}
+
+	$content = file_get_contents($fileName);
+	if ( $content === false ) {
+		return $default;
+	}
+
+	return trim(str_replace("\r","",$content));
+}
+
 function execComposeCommandInTTY($cmd, $debug)
 {
 	global $socket_name;;
@@ -43,6 +70,7 @@ function echoComposeCommand($action)
 	else
 	{
 		$composeCommand = array($plugin_root."scripts/compose.sh");
+		$composeAction = $action;
 
 		$projectName = basename($path);
 		if ( is_file("$path/name") ) {
@@ -79,6 +107,20 @@ function echoComposeCommand($action)
 		if( $profile ) {
 			$profile = "-g $profile";
 			$composeCommand[] = $profile;
+		}
+
+		if ( $composeAction == "up" ) {
+			$retryCount = normalizeNonNegativeInt(readFileTrimmed("$path/retry_count", "0"), 0);
+			if ( intval($retryCount) > 0 ) {
+				$retryWait = normalizeNonNegativeInt(readFileTrimmed("$path/retry_wait", "10"), 10);
+				$retryRebuild = normalizeBoolean(readFileTrimmed("$path/retry_rebuild", "false"));
+
+				$composeCommand[] = "-r$retryCount";
+				$composeCommand[] = "-w$retryWait";
+				if ( $retryRebuild == "true" ) {
+					$composeCommand[] = "--retry-rebuild";
+				}
+			}
 		}
 
 		if( $debug ) {
